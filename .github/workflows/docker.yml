@@ -1,0 +1,58 @@
+# Nombre del pipeline que se verá en GitHub Actions
+name: CI/CD Pipeline
+
+# Define que el pipeline se ejecutará cuando haya un push a la rama "main"
+on:
+  push:
+    branches:
+      - main
+
+# Define los trabajos (jobs) que se ejecutarán en el pipeline
+jobs:
+  build:
+    # El pipeline correrá en un runner de Ubuntu
+    runs-on: ubuntu-latest
+
+    steps:
+      # Paso 1: Checkout del código del repositorio
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      # Paso 2: Configurar Docker Buildx para construir imágenes Docker
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      # Paso 3: Iniciar sesión en Docker Hub usando los secretos configurados en GitHub
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # Paso 4: Construir la imagen Docker y subirla a Docker Hub
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v2
+        with:
+          push: true  # Empujar la imagen a Docker Hub
+          tags: ${{ secrets.DOCKER_USERNAME }}/myapp:latest  # Etiqueta (tag) de la imagen
+
+  # Segundo trabajo: Desplegar la aplicación en el servidor de producción
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build  # Este trabajo se ejecutará después del trabajo de build
+
+    steps:
+      # Conectarse al servidor por SSH y ejecutar los comandos de despliegue
+      - name: Deploy to server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}  # IP del servidor
+          username: ${{ secrets.SSH_USER }}  # Usuario SSH
+          key: ${{ secrets.SSH_PRIVATE_KEY }}  # Clave privada SSH para autenticación
+          script: |
+            # Comandos para actualizar y reiniciar la aplicación en Docker
+            docker pull ${{ secrets.DOCKER_USERNAME }}/myapp:latest  # Descargar la última imagen desde Docker Hub
+            docker stop myapp || true  # Detener el contenedor si ya está corriendo
+            docker rm myapp || true  # Eliminar el contenedor si ya existe
+            docker run -d --name myapp -p 80:3000 ${{ secrets.DOCKER_USERNAME }}/myapp:latest  # Correr un nuevo contenedor en el puerto 80
+
